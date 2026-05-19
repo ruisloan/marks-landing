@@ -227,17 +227,20 @@ export default function LandingPage() {
         <div className="container mx-auto max-w-6xl px-6 py-8 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2.5 text-white/60 text-xs">
             <Lock className="h-3.5 w-3.5" />
-            Private by architecture. Open source. No analytics, no tracking, no remote code.
+            Private by architecture. No analytics, no tracking, no remote code.
           </div>
-          <a
-            href="https://www.centralbraintrust.com"
-            target="_blank"
-            rel="noreferrer"
-            className="text-white/60 text-xs hover:text-white"
-          >
-            Created exclusively for and offered by{" "}
-            <span className="underline underline-offset-2">Central Brain Trust ↗</span>
-          </a>
+          <div className="flex items-center gap-6 text-xs text-white/60">
+            <a href="/privacy" className="hover:text-white">Privacy</a>
+            <a
+              href="https://www.centralbraintrust.com"
+              target="_blank"
+              rel="noreferrer"
+              className="hover:text-white"
+            >
+              Created exclusively for and offered by{" "}
+              <span className="underline underline-offset-2">Central Brain Trust ↗</span>
+            </a>
+          </div>
         </div>
       </footer>
     </main>
