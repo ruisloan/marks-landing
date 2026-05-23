@@ -11,7 +11,8 @@ import {
   Bookmark as BookmarkIcon,
 } from "lucide-react";
 
-const CHROME_STORE_URL = "#"; // Set this to the real Chrome Web Store URL after publishing.
+const CHROME_STORE_URL =
+  "https://chromewebstore.google.com/detail/bagamnkebccfkdhihmohmaddedgeonng";
 
 function StoreButton({ className = "" }: { className?: string }) {
   return (
