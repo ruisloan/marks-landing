@@ -60,7 +60,7 @@ export default function LandingPage() {
       <section className="container mx-auto max-w-6xl px-6 pt-20 pb-16 text-center">
         <div className="inline-flex items-center gap-2 rounded-full glass glass-highlight px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 mb-8">
           <Sparkles className="h-3 w-3" />
-          New tab · Liquid glass · iOS 26
+          Toolbar popup · Liquid glass · iOS 26
         </div>
         <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] text-balance">
           Your bookmarks,
@@ -70,8 +70,9 @@ export default function LandingPage() {
           </span>
         </h1>
         <p className="mt-7 max-w-2xl mx-auto text-lg text-white/70 text-balance">
-          Marks turns every Chrome tab into a private, liquid-glass dashboard for your saved
-          pages. Workspaces, collections, tags, ⌘K search. No accounts. No tracking. Just yours.
+          Marks lives in your Chrome toolbar. Click the icon to save the page you're on into
+          workspaces, collections and tags. Open the full liquid-glass dashboard whenever you
+          want to browse, search and organize. No accounts. No tracking. Just yours.
         </p>
         <div className="mt-10 flex items-center justify-center gap-4 flex-wrap">
           <StoreButton />
@@ -171,11 +172,7 @@ export default function LandingPage() {
             <div className="space-y-3">
               <PermissionRow
                 name="storage"
-                why="To persist your bookmarks, workspaces and collections between sessions."
-              />
-              <PermissionRow
-                name="bookmarks"
-                why="Used only when you click Import. Reads your existing Chrome bookmarks once; never modifies them."
+                why="To persist your bookmarks, workspaces and collections between sessions, locally in chrome.storage.local."
               />
               <PermissionRow
                 name="contextMenus"
@@ -204,7 +201,8 @@ export default function LandingPage() {
           <Faq q="Will Marks replace my regular Chrome bookmarks?" a="No. Marks lives next to them. We never modify your native Chrome bookmarks. Your existing bookmarks bar keeps working exactly as before." />
           <Faq q="Can I export everything?" a="Yes. Open the dashboard, click ⋯ → Export backup (JSON). One file, every workspace / collection / bookmark. Re-import any time." />
           <Faq q="What if I uninstall Marks?" a="Chrome wipes the extension's local storage automatically. Export a backup first if you want to keep your data." />
-          <Faq q="Does it work on iOS / Android?" a="Chrome on mobile doesn't support extensions, so the new-tab override is desktop-only. The same codebase is shaped for an iOS-native feel, however — coming as a PWA next." />
+          <Faq q="Does it work in Comet, Arc, Brave or Edge?" a="Yes — any Chromium-based browser supports the same toolbar popup. Install it once, works the same everywhere." />
+          <Faq q="Does it work on iOS / Android?" a="Chrome on mobile doesn't support extensions. The same codebase is shaped for an iOS-native feel, however — a PWA version is on the roadmap." />
         </div>
       </section>
 
@@ -212,10 +210,10 @@ export default function LandingPage() {
       <section className="container mx-auto max-w-4xl px-6 pb-24 text-center">
         <div className="glass-strong glass-highlight rounded-3xl p-12">
           <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-balance">
-            Stop wasting your new tab page.
+            Save the next page in one click.
           </h2>
           <p className="mt-3 text-white/70 text-balance">
-            Install Marks. Pin it to your toolbar. Reclaim the most-visited surface in your browser.
+            Install Marks. Pin it to your toolbar. Every page you care about is one click away from saved — and one click away from found again.
           </p>
           <div className="mt-7">
             <StoreButton />
