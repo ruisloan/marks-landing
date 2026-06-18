@@ -2,52 +2,146 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
+@layer base {
+  :root {
+    /* iOS 26 light — soft warm white with subtle blue tint */
+    --background: 220 30% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 211 100% 50%;
+    --radius: 1rem;
+
+    /* iOS-style ambient gradient */
+    --gradient-1: 220 100% 90%;
+    --gradient-2: 260 100% 92%;
+    --gradient-3: 320 100% 94%;
+  }
+
+  .dark {
+    /* iOS 26 dark — true near-black with cool tint */
+    --background: 222 24% 6%;
+    --foreground: 210 20% 98%;
+    --card: 222 22% 9%;
+    --card-foreground: 210 20% 98%;
+    --popover: 222 22% 9%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 211 100% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 18% 14%;
+    --secondary-foreground: 210 20% 98%;
+    --muted: 222 18% 14%;
+    --muted-foreground: 215 16% 65%;
+    --accent: 222 18% 14%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 18% 18%;
+    --input: 222 18% 18%;
+    --ring: 211 100% 56%;
+
+    --gradient-1: 222 80% 12%;
+    --gradient-2: 260 60% 14%;
+    --gradient-3: 320 50% 12%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body {
+    @apply bg-background text-foreground antialiased;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-image:
+      radial-gradient(at 8% 0%, hsl(var(--gradient-1) / 0.6) 0px, transparent 50%),
+      radial-gradient(at 92% 0%, hsl(var(--gradient-2) / 0.5) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, hsl(var(--gradient-3) / 0.4) 0px, transparent 50%);
+    background-attachment: fixed;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  /* iOS safe areas */
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-x { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 }
 
-html,
-body {
-  background: #0a0c12;
-  color: #f8fafc;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+@layer components {
+  /* Liquid glass — the signature iOS 26 surface */
+  .glass {
+    @apply relative bg-white/60 dark:bg-white/[0.06] backdrop-blur-2xl backdrop-saturate-150;
+    @apply border border-white/40 dark:border-white/10;
+    @apply shadow-glass-light dark:shadow-glass;
+  }
+
+  .glass-strong {
+    @apply relative bg-white/80 dark:bg-white/[0.08] backdrop-blur-3xl backdrop-saturate-150;
+    @apply border border-white/50 dark:border-white/10;
+    @apply shadow-glass-light dark:shadow-glass;
+  }
+
+  .glass-subtle {
+    @apply relative bg-white/40 dark:bg-white/[0.04] backdrop-blur-xl backdrop-saturate-150;
+    @apply border border-white/30 dark:border-white/[0.06];
+  }
+
+  /* iOS-style pressable */
+  .pressable {
+    @apply transition-all duration-150 active:scale-[0.97] active:opacity-80;
+  }
+
+  /* Subtle inner highlight at the top of glass surfaces */
+  .glass-highlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.5) 0%, transparent 30%);
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+
+  .dark .glass-highlight::before {
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.08) 0%, transparent 30%);
+  }
+
+  /* Scrollbar */
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Hide scrollbar but keep scroll */
+  .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }
 
-body {
-  background-image:
-    radial-gradient(at 8% 0%, rgb(91 157 255 / 0.30) 0px, transparent 55%),
-    radial-gradient(at 92% 0%, rgb(168 85 247 / 0.28) 0px, transparent 55%),
-    radial-gradient(at 50% 60%, rgb(236 72 153 / 0.22) 0px, transparent 60%),
-    radial-gradient(at 12% 100%, rgb(91 157 255 / 0.22) 0px, transparent 55%),
-    radial-gradient(at 88% 100%, rgb(168 85 247 / 0.18) 0px, transparent 55%);
-  background-attachment: fixed;
-  background-repeat: no-repeat;
-  background-size: cover;
-  min-height: 100vh;
-  min-height: 100dvh;
-}
-
-.glass {
-  @apply relative bg-white/[0.06] backdrop-blur-2xl backdrop-saturate-150;
-  @apply border border-white/10;
-}
-
-.glass-strong {
-  @apply relative bg-white/[0.08] backdrop-blur-3xl backdrop-saturate-150;
-  @apply border border-white/10;
-}
-
-.glass-highlight::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.08) 0%, transparent 30%);
-  pointer-events: none;
-  mix-blend-mode: overlay;
-}
-
-.text-balance {
-  text-wrap: balance;
+@layer utilities {
+  .text-balance { text-wrap: balance; }
 }

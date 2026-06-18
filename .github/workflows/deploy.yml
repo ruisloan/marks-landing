@@ -24,11 +24,12 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run icons
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: 1
       - run: touch out/.nojekyll
-      - run: cp public/CNAME out/CNAME 2>/dev/null || echo "marks.centralbraintrust.com" > out/CNAME
+      - run: cp public/CNAME out/CNAME 2>/dev/null || true
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

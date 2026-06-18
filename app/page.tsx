@@ -1,322 +1,557 @@
+"use client";
+
+import * as React from "react";
+import { toast } from "sonner";
+import { FolderOpen, Plus } from "lucide-react";
+import { Sidebar, type View } from "@/components/sidebar";
+import { Topbar } from "@/components/topbar";
+import { Stats } from "@/components/stats";
+import { BookmarkGrid } from "@/components/bookmark-grid";
+import { BookmarkDialog } from "@/components/bookmark-dialog";
+import { FolderDialog } from "@/components/folder-dialog";
+import { ImportDialog } from "@/components/import-dialog";
+import { CommandPalette } from "@/components/command-palette";
+import { MobileTabBar, type MobileTab } from "@/components/mobile-tabbar";
+import { MobileHeader } from "@/components/mobile-header";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
+import { BrandCard } from "@/components/brand-card";
+import { CollectionPicker } from "@/components/collection-picker";
+import { TagPicker } from "@/components/tag-picker";
+import type { Bookmark, Collection, Workspace } from "@/lib/types";
 import {
-  Sparkles,
-  Layers,
-  Hash,
-  Command,
-  Lock,
-  Zap,
-  MousePointerClick,
-  Keyboard,
-  Download,
-  Bookmark as BookmarkIcon,
-} from "lucide-react";
+  listBookmarks,
+  listCollections,
+  listWorkspaces,
+  createBookmark,
+  updateBookmark,
+  deleteBookmark,
+  reorderBookmarks,
+  createCollection,
+  deleteCollection,
+  createWorkspace,
+  deleteWorkspace,
+  bulkImport,
+  clearAll,
+} from "@/lib/storage";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import { buildBackup, downloadJson, isBackupFile, restoreFromBackup } from "@/lib/backup";
 
-const CHROME_STORE_URL =
-  "https://chromewebstore.google.com/detail/bagamnkebccfkdhihmohmaddedgeonng";
+const LS_ACTIVE_WS = "bm.activeWorkspace.v1";
 
-function StoreButton({ className = "" }: { className?: string }) {
-  return (
-    <a
-      href={CHROME_STORE_URL}
-      target="_blank"
-      rel="noreferrer"
-      className={`inline-flex items-center gap-2.5 rounded-full bg-white text-black font-semibold px-6 py-3.5 text-sm shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-transform ${className}`}
-    >
-      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-        <path d="M12 0a12 12 0 0 1 10.39 5.99H12a6 6 0 0 0-5.2 9L1.61 6A12 12 0 0 1 12 0zM1.61 6l5.19 9a6 6 0 0 0 8.46 2.16l-3.13 5.41A12 12 0 0 1 1.61 6zm20.78 0A12 12 0 0 1 12 24l5.19-9a6 6 0 0 0 .07-5.6h5.13z" />
-      </svg>
-      Install on Chrome — Free
-    </a>
-  );
-}
+export default function HomePage() {
+  const [workspaces, setWorkspaces] = React.useState<Workspace[]>([]);
+  const [activeWsId, setActiveWsId] = React.useState<string | null>(null);
 
-export default function LandingPage() {
-  return (
-    <main className="relative">
-      {/* Header */}
-      <header className="container mx-auto max-w-6xl px-6 pt-8 flex items-center justify-between">
-        <a href="/" className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-500 via-fuchsia-500 to-pink-500 flex items-center justify-center shadow-lg">
-            <BookmarkIcon className="h-4.5 w-4.5 text-white" />
-          </div>
-          <span className="font-bold text-base">Marks</span>
-        </a>
-        <nav className="hidden md:flex items-center gap-7 text-sm text-white/70">
-          <a href="#features" className="hover:text-white">Features</a>
-          <a href="#privacy" className="hover:text-white">Privacy</a>
-          <a href="#faq" className="hover:text-white">FAQ</a>
-          <a
-            href={CHROME_STORE_URL}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full bg-white text-black font-semibold px-4 py-2 hover:scale-[1.02] active:scale-95 transition-transform"
-          >
-            Install
-          </a>
-        </nav>
-      </header>
+  const [bookmarks, setBookmarks] = React.useState<Bookmark[]>([]);
+  const [collections, setCollections] = React.useState<Collection[]>([]);
+  const [loaded, setLoaded] = React.useState(false);
 
-      {/* Hero */}
-      <section className="container mx-auto max-w-6xl px-6 pt-20 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full glass glass-highlight px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/80 mb-8">
-          <Sparkles className="h-3 w-3" />
-          Toolbar popup · Liquid glass · iOS 26
+  const [view, setView] = React.useState<View>({ kind: "all" });
+  const [mobileTab, setMobileTab] = React.useState<MobileTab>("home");
+  const [query, setQuery] = React.useState("");
+
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [bookmarkDialog, setBookmarkDialog] = React.useState<{ open: boolean; initial?: Bookmark | null }>({
+    open: false,
+  });
+  const [collectionDialogOpen, setCollectionDialogOpen] = React.useState(false);
+  const [workspaceDialogOpen, setWorkspaceDialogOpen] = React.useState(false);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [collectionPickerOpen, setCollectionPickerOpen] = React.useState(false);
+  const [tagPickerOpen, setTagPickerOpen] = React.useState(false);
+
+  /* ---------- Load workspaces and pick the active one ---------- */
+  const refresh = React.useCallback(async (workspaceIdOverride?: string) => {
+    const ws = await listWorkspaces();
+    setWorkspaces(ws);
+    if (ws.length === 0) {
+      // Nothing to show, but allow the user to create the first workspace
+      setActiveWsId(null);
+      setBookmarks([]);
+      setCollections([]);
+      return;
+    }
+    let activeId = workspaceIdOverride ?? activeWsId;
+    if (!activeId || !ws.find((w) => w.id === activeId)) {
+      const stored = typeof window !== "undefined" ? localStorage.getItem(LS_ACTIVE_WS) : null;
+      activeId = stored && ws.find((w) => w.id === stored) ? stored : ws[0].id;
+    }
+    setActiveWsId(activeId);
+    if (typeof window !== "undefined") localStorage.setItem(LS_ACTIVE_WS, activeId);
+
+    const [bs, cs] = await Promise.all([listBookmarks(activeId), listCollections(activeId)]);
+    setBookmarks(bs);
+    setCollections(cs);
+  }, [activeWsId]);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        await refresh();
+      } catch (err) {
+        console.error("[Marks] initial load failed:", err);
+        toast.error("Failed to load — check console for details");
+      } finally {
+        setLoaded(true);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ---------- ⌘K shortcut ---------- */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /* ---------- Share Target: open Add dialog pre-filled when launched
+   *            from another app via the OS share sheet. ---------- */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!loaded) return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("share") && !params.has("url") && !params.has("text")) return;
+    const url = params.get("url") || params.get("text") || "";
+    const title = params.get("title") || "";
+    if (!url) return;
+    setBookmarkDialog({
+      open: true,
+      initial: {
+        id: "",
+        url,
+        title: title || url,
+        description: null,
+        favicon: null,
+        preview: null,
+        workspace_id: activeWsId ?? "",
+        collection_id: null,
+        tags: [],
+        position: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Bookmark,
+    });
+    // Strip the params so a reload doesn't re-trigger.
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [loaded, activeWsId]);
+
+  /* ---------- Derived list ---------- */
+  const filtered = React.useMemo(() => {
+    let list = [...bookmarks];
+
+    if (view.kind === "collection") list = list.filter((b) => b.collection_id === view.id);
+    if (view.kind === "tag") list = list.filter((b) => b.tags?.includes(view.tag));
+    if (view.kind === "recent") {
+      list = list
+        .slice()
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 24);
+    }
+
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      list = list.filter(
+        (b) =>
+          b.title.toLowerCase().includes(q) ||
+          b.url.toLowerCase().includes(q) ||
+          (b.description || "").toLowerCase().includes(q) ||
+          (b.tags || []).some((t) => t.toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [bookmarks, view, query]);
+
+  /* ---------- Handlers ---------- */
+  const handleWorkspaceChange = async (id: string) => {
+    setView({ kind: "all" });
+    await refresh(id);
+  };
+
+  const handleNewWorkspace = () => setWorkspaceDialogOpen(true);
+
+  const handleSubmitWorkspace = async (data: { name: string; emoji?: string; color?: string }) => {
+    const ws = await createWorkspace(data);
+    toast.success("Workspace created");
+    await refresh(ws.id);
+  };
+
+  const handleDeleteWorkspace = async (id: string) => {
+    if (workspaces.length <= 1) {
+      toast.error("Keep at least one workspace");
+      return;
+    }
+    await deleteWorkspace(id);
+    toast.success("Workspace deleted");
+    const next = workspaces.find((w) => w.id !== id);
+    await refresh(next?.id);
+  };
+
+  const handleCreate = () => setBookmarkDialog({ open: true, initial: null });
+  const handleEdit = (b: Bookmark) => setBookmarkDialog({ open: true, initial: b });
+
+  const handleSubmitBookmark = async (data: {
+    url: string;
+    title: string;
+    description?: string | null;
+    collection_id?: string | null;
+    tags: string[];
+  }) => {
+    if (!activeWsId) {
+      toast.error("Create a workspace first");
+      return;
+    }
+    if (bookmarkDialog.initial && bookmarkDialog.initial.id) {
+      await updateBookmark(bookmarkDialog.initial.id, data);
+      toast.success("Bookmark updated");
+    } else {
+      await createBookmark({ ...data, workspace_id: activeWsId });
+      toast.success("Bookmark added");
+    }
+    await refresh();
+  };
+
+  const handleDelete = async (b: Bookmark) => {
+    if (!confirm(`Delete "${b.title}"?`)) return;
+    await deleteBookmark(b.id);
+    toast.success("Bookmark deleted");
+    await refresh();
+  };
+
+  const handleReorder = async (ids: string[]) => {
+    setBookmarks((prev) => {
+      const byId = new Map(prev.map((b) => [b.id, b]));
+      return ids.map((id, position) => ({ ...byId.get(id)!, position }));
+    });
+    await reorderBookmarks(ids);
+  };
+
+  const handleCreateCollection = async (data: { name: string; emoji?: string; color?: string }) => {
+    if (!activeWsId) return;
+    await createCollection({ ...data, workspace_id: activeWsId });
+    toast.success("Collection created");
+    await refresh();
+  };
+
+  const handleDeleteCollection = async (id: string) => {
+    await deleteCollection(id);
+    toast.success("Collection deleted");
+    if (view.kind === "collection" && view.id === id) setView({ kind: "all" });
+    await refresh();
+  };
+
+  const handleImport = async (items: Array<{ url: string; title: string }>) => {
+    if (!activeWsId) return 0;
+    const n = await bulkImport(activeWsId, items);
+    toast.success(`Imported ${n} bookmarks`);
+    await refresh();
+    return n;
+  };
+
+  const handleClearAll = async () => {
+    if (!confirm("This will delete ALL your data. Continue?")) return;
+    await clearAll();
+    toast.success("Cleared");
+    setActiveWsId(null);
+    await refresh();
+  };
+
+  const handleExportJson = async () => {
+    const backup = await buildBackup();
+    const ts = new Date().toISOString().slice(0, 10);
+    downloadJson(`marks-backup-${ts}.json`, backup);
+    toast.success("Backup downloaded");
+  };
+
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const handleImportJson = () => fileInputRef.current?.click();
+  const handleImportJsonFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      if (!isBackupFile(parsed)) {
+        toast.error("Not a valid Marks backup file");
+        return;
+      }
+      const counts = `${parsed.workspaces.length} workspaces · ${parsed.collections.length} collections · ${parsed.bookmarks.length} bookmarks`;
+      if (
+        !confirm(
+          `Restore this backup?\n${counts}\n\nThis will REPLACE all current data. Continue?`,
+        )
+      ) {
+        return;
+      }
+      const n = await restoreFromBackup(parsed);
+      toast.success(
+        `Restored ${n.bookmarks} bookmarks across ${n.workspaces} workspaces`,
+      );
+      setActiveWsId(null);
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not read backup file");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  /* ---------- View title ---------- */
+  const activeWs = workspaces.find((w) => w.id === activeWsId);
+  const viewTitle = React.useMemo(() => {
+    if (view.kind === "collection") {
+      const c = collections.find((x) => x.id === view.id);
+      return c ? c.name : "Collection";
+    }
+    if (view.kind === "tag") return `#${view.tag}`;
+    if (view.kind === "recent") return "Recently added";
+    return activeWs ? activeWs.name : "All bookmarks";
+  }, [view, collections, activeWs]);
+
+  const viewSubtitle = `${filtered.length} ${filtered.length === 1 ? "item" : "items"}`;
+
+  if (!loaded) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center">
+        <div className="glass glass-highlight rounded-full px-5 py-2 text-sm text-muted-foreground animate-pulse">
+          Loading…
         </div>
-        <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] text-balance">
-          Your bookmarks,
-          <br />
-          <span className="bg-gradient-to-r from-blue-400 via-fuchsia-400 to-pink-400 bg-clip-text text-transparent">
-            beautifully organized.
-          </span>
-        </h1>
-        <p className="mt-7 max-w-2xl mx-auto text-lg text-white/70 text-balance">
-          Marks lives in your Chrome toolbar. Click the icon to save the page you're on into
-          workspaces, collections and tags. Open the full liquid-glass dashboard whenever you
-          want to browse, search and organize. No accounts. No tracking. Just yours.
-        </p>
-        <div className="mt-10 flex items-center justify-center gap-4 flex-wrap">
-          <StoreButton />
-          <a
-            href="#features"
-            className="rounded-full glass glass-highlight px-5 py-3 text-sm font-medium text-white/80 hover:text-white"
-          >
-            See it in action ↓
-          </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-dvh flex">
+      <Sidebar
+        workspaces={workspaces}
+        activeWorkspaceId={activeWsId}
+        onWorkspaceChange={handleWorkspaceChange}
+        onNewWorkspace={handleNewWorkspace}
+        onDeleteWorkspace={handleDeleteWorkspace}
+        collections={collections}
+        bookmarks={bookmarks}
+        view={view}
+        onViewChange={setView}
+        onAddCollection={() => setCollectionDialogOpen(true)}
+        onDeleteCollection={handleDeleteCollection}
+      />
+
+      <main className="flex-1 min-w-0 px-3 lg:px-6 py-3 lg:py-3 pb-32 lg:pb-6">
+        <div className="hidden lg:block">
+          <Topbar
+            title={viewTitle}
+            subtitle={viewSubtitle}
+            query={query}
+            onQueryChange={setQuery}
+            onAdd={handleCreate}
+            onImport={() => setImportOpen(true)}
+            onExportJson={handleExportJson}
+            onImportJson={handleImportJson}
+            onOpenPalette={() => setPaletteOpen(true)}
+          />
         </div>
 
-        {/* Hero screenshot */}
-        <div className="mt-16 relative">
-          <div className="absolute inset-x-0 -top-12 h-72 bg-gradient-to-b from-blue-500/30 via-fuchsia-500/20 to-transparent blur-3xl -z-10" />
-          <div className="glass glass-highlight rounded-3xl overflow-hidden ring-1 ring-white/10 shadow-2xl">
-            <img
-              src="/screenshot-1-dashboard-1280x800.png"
-              alt="Marks dashboard"
-              width={1280}
-              height={800}
-              className="w-full"
+        {/* Mobile header + workspace switcher on top */}
+        <div className="lg:hidden">
+          <MobileHeader
+            title={viewTitle}
+            subtitle={viewSubtitle}
+            onImport={() => setImportOpen(true)}
+            onExportJson={handleExportJson}
+            onImportJson={handleImportJson}
+            onClear={handleClearAll}
+          />
+          <div className="mt-2 glass glass-highlight rounded-2xl p-1.5">
+            <WorkspaceSwitcher
+              workspaces={workspaces}
+              activeId={activeWsId}
+              onChange={handleWorkspaceChange}
+              onNew={handleNewWorkspace}
+              onDelete={handleDeleteWorkspace}
             />
           </div>
         </div>
-      </section>
 
-      {/* Features */}
-      <section id="features" className="container mx-auto max-w-6xl px-6 py-24">
-        <div className="text-center mb-14">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/50">
-            Features
-          </p>
-          <h2 className="mt-2 text-4xl md:text-5xl font-bold tracking-tight text-balance">
-            Built for the way you actually browse.
-          </h2>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          <FeatureCard
-            icon={Layers}
-            title="Workspaces & Collections"
-            text="Isolate Personal, Work, Side Projects into separate spaces. Inside each, group bookmarks into colored collections."
-            screenshot="/screenshot-3-collections-1280x800.png"
-            gradient="from-fuchsia-500 to-pink-500"
-          />
-          <FeatureCard
-            icon={Command}
-            title="⌘K command palette"
-            text="One shortcut, jump anywhere — bookmarks, workspaces, collections, tags. The same Spotlight feel you already know."
-            screenshot="/screenshot-2-palette-1280x800.png"
-            gradient="from-blue-500 to-cyan-400"
-          />
-          <FeatureCard
-            icon={Hash}
-            title="Tags that scale"
-            text="Tag any bookmark with anything. Marks builds a live tag cloud you can click to filter."
-            screenshot="/screenshot-4-tags-1280x800.png"
-            gradient="from-amber-500 to-orange-400"
-          />
-          <FeatureCard
-            icon={Sparkles}
-            title="Light & Dark, glass everywhere"
-            text="Liquid-glass surfaces with tinted ambient gradients. Looks beautiful all day."
-            screenshot="/screenshot-5-light-1280x800.png"
-            gradient="from-emerald-500 to-teal-400"
-          />
-        </div>
-
-        {/* Quick wins row */}
-        <div className="mt-10 grid sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <QuickWin icon={MousePointerClick} title="One-click save" text="Toolbar popup pre-fills URL & title from the active tab." />
-          <QuickWin icon={Keyboard} title="Keyboard shortcuts" text="⌘+Shift+S saves the page. ⌘+Shift+M opens the popup." />
-          <QuickWin icon={Download} title="Backup & Restore" text="Export everything to JSON. Reimport anywhere, anytime." />
-          <QuickWin icon={Zap} title="Offline-first" text="Works without internet. Always." />
-        </div>
-      </section>
-
-      {/* Privacy */}
-      <section id="privacy" className="container mx-auto max-w-6xl px-6 py-24">
-        <div className="glass glass-highlight rounded-3xl p-10 md:p-14 relative overflow-hidden">
-          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-emerald-500/20 blur-3xl" />
-          <div className="grid md:grid-cols-2 gap-10 items-center relative">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">
-                Privacy
-              </p>
-              <h2 className="mt-2 text-4xl md:text-5xl font-bold tracking-tight text-balance">
-                Your data never leaves your device.
-              </h2>
-              <p className="mt-5 text-white/70 text-lg text-balance">
-                Marks is private by architecture, not by promise. There is no remote server
-                to contact, no account to sign up for, no analytics, no telemetry. Every
-                bookmark you save lives in <code className="text-emerald-300">chrome.storage.local</code>{" "}
-                on your machine.
-              </p>
-            </div>
-            <div className="space-y-3">
-              <PermissionRow
-                name="storage"
-                why="To persist your bookmarks, workspaces and collections between sessions, locally in chrome.storage.local."
-              />
-              <PermissionRow
-                name="contextMenus"
-                why="Adds a right-click → Save to Marks shortcut on pages and links."
-              />
-              <PermissionRow
-                name="activeTab"
-                why="Lets the popup pre-fill the URL and title of the tab you're currently on. No other tabs are accessed."
-              />
-            </div>
+        {!isSupabaseConfigured && (
+          <div className="mt-4 glass rounded-2xl px-4 py-2.5 flex items-center gap-3 text-xs">
+            <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+            <span className="text-muted-foreground">
+              Storing locally (no sync). Add Supabase env vars to enable cloud sync.
+            </span>
           </div>
-        </div>
-      </section>
+        )}
 
-      {/* FAQ */}
-      <section id="faq" className="container mx-auto max-w-3xl px-6 py-24">
-        <div className="text-center mb-12">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/50">
-            FAQ
-          </p>
-          <h2 className="mt-2 text-4xl md:text-5xl font-bold tracking-tight">Questions, answered.</h2>
+        <div className="mt-4">
+          <Stats
+            bookmarks={bookmarks}
+            collections={collections}
+            leading={<BrandCard />}
+            onAction={(action) => {
+              if (action === "all") {
+                setView({ kind: "all" });
+                setMobileTab("home");
+                setQuery("");
+              } else if (action === "recent") {
+                setView({ kind: "recent" });
+                setMobileTab("home");
+              } else if (action === "collections") {
+                setCollectionPickerOpen(true);
+              } else if (action === "tags") {
+                setTagPickerOpen(true);
+              }
+            }}
+          />
         </div>
-        <div className="space-y-3">
-          <Faq q="Is Marks free?" a="Yes. Marks is and will remain free. Created exclusively for and offered by Central Brain Trust." />
-          <Faq q="Do my bookmarks sync across devices?" a="In this version, no — everything lives on the device where you installed Marks. We made this trade deliberately: 10 MB of safe local storage instead of a 100 KB synced quota that can drop bookmarks silently. Cross-device sync is on the roadmap as an opt-in." />
-          <Faq q="Will Marks replace my regular Chrome bookmarks?" a="No. Marks lives next to them. We never modify your native Chrome bookmarks. Your existing bookmarks bar keeps working exactly as before." />
-          <Faq q="Can I export everything?" a="Yes. Open the dashboard, click ⋯ → Export backup (JSON). One file, every workspace / collection / bookmark. Re-import any time." />
-          <Faq q="What if I uninstall Marks?" a="Chrome wipes the extension's local storage automatically. Export a backup first if you want to keep your data." />
-          <Faq q="Does it work in Comet, Arc, Brave or Edge?" a="Yes — any Chromium-based browser supports the same toolbar popup. Install it once, works the same everywhere." />
-          <Faq q="Does it work on iOS / Android?" a="Chrome on mobile doesn't support extensions. The same codebase is shaped for an iOS-native feel, however — a PWA version is on the roadmap." />
-        </div>
-      </section>
 
-      {/* CTA */}
-      <section className="container mx-auto max-w-4xl px-6 pb-24 text-center">
-        <div className="glass-strong glass-highlight rounded-3xl p-12">
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tight text-balance">
-            Save the next page in one click.
-          </h2>
-          <p className="mt-3 text-white/70 text-balance">
-            Install Marks. Pin it to your toolbar. Every page you care about is one click away from saved — and one click away from found again.
-          </p>
-          <div className="mt-7">
-            <StoreButton />
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-white/[0.06]">
-        <div className="container mx-auto max-w-6xl px-6 py-8 flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-2.5 text-white/60 text-xs">
-            <Lock className="h-3.5 w-3.5" />
-            Private by architecture. No analytics, no tracking, no remote code.
-          </div>
-          <div className="flex items-center gap-6 text-xs text-white/60">
-            <a href="/privacy" className="hover:text-white">Privacy</a>
-            <a
-              href="https://www.centralbraintrust.com"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-white"
+        {/* Mobile tabs */}
+        {mobileTab === "folders" && (
+          <div className="lg:hidden mt-4 grid grid-cols-2 gap-3">
+            {collections.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setView({ kind: "collection", id: c.id });
+                  setMobileTab("home");
+                }}
+                className="glass glass-highlight rounded-3xl p-4 text-left pressable"
+              >
+                <div
+                  className="h-9 w-9 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: c.color
+                      ? `linear-gradient(135deg, ${c.color}, ${c.color}cc)`
+                      : "linear-gradient(135deg, #6366f1, #a855f7)",
+                  }}
+                >
+                  <FolderOpen className="h-4 w-4 text-white" />
+                </div>
+                <div className="mt-2 font-semibold">{c.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {bookmarks.filter((b) => b.collection_id === c.id).length} items
+                </div>
+              </button>
+            ))}
+            <button
+              onClick={() => setCollectionDialogOpen(true)}
+              className="glass-subtle rounded-3xl p-4 text-left pressable border-dashed flex flex-col items-center justify-center text-muted-foreground"
             >
-              Created exclusively for and offered by{" "}
-              <span className="underline underline-offset-2">Central Brain Trust ↗</span>
-            </a>
+              <Plus className="h-7 w-7" />
+              <div className="mt-2 text-sm font-medium">New collection</div>
+            </button>
           </div>
-        </div>
-      </footer>
-    </main>
-  );
-}
+        )}
 
-function FeatureCard({
-  icon: Icon,
-  title,
-  text,
-  screenshot,
-  gradient,
-}: {
-  icon: any;
-  title: string;
-  text: string;
-  screenshot: string;
-  gradient: string;
-}) {
-  return (
-    <div className="glass glass-highlight rounded-3xl p-6 md:p-8 relative overflow-hidden">
-      <div className={`absolute -top-16 -right-16 h-48 w-48 rounded-full bg-gradient-to-br ${gradient} opacity-20 blur-3xl`} />
-      <div className="relative">
-        <div
-          className={`inline-flex h-10 w-10 rounded-xl bg-gradient-to-br ${gradient} items-center justify-center text-white shadow-md`}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-        <h3 className="mt-5 text-xl font-bold">{title}</h3>
-        <p className="mt-2 text-sm text-white/70 leading-relaxed">{text}</p>
-      </div>
-      <div className="mt-6 -mb-2 -mx-2 relative">
-        <img
-          src={screenshot}
-          alt=""
-          width={1280}
-          height={800}
-          className="w-full rounded-2xl border border-white/10"
-        />
-      </div>
+        {mobileTab === "tags" && (
+          <div className="lg:hidden mt-4 flex flex-wrap gap-2">
+            {Array.from(new Set(bookmarks.flatMap((b) => b.tags || []))).map((t) => {
+              const count = bookmarks.filter((b) => b.tags?.includes(t)).length;
+              return (
+                <button
+                  key={t}
+                  onClick={() => {
+                    setView({ kind: "tag", tag: t });
+                    setMobileTab("home");
+                  }}
+                  className="glass rounded-full px-4 py-2 text-sm pressable"
+                >
+                  #{t}
+                  <span className="ml-1.5 text-xs text-muted-foreground">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {(mobileTab === "home" || mobileTab === "search") && (
+          <div className="mt-4">
+            <BookmarkGrid
+              bookmarks={filtered}
+              collections={collections}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onReorder={handleReorder}
+            />
+          </div>
+        )}
+      </main>
+
+      <MobileTabBar
+        tab={mobileTab}
+        onTab={setMobileTab}
+        onAdd={handleCreate}
+        onSearch={() => setPaletteOpen(true)}
+      />
+
+      <BookmarkDialog
+        open={bookmarkDialog.open}
+        onOpenChange={(open) => setBookmarkDialog({ open, initial: bookmarkDialog.initial })}
+        collections={collections}
+        initial={bookmarkDialog.initial}
+        onSubmit={handleSubmitBookmark}
+      />
+      <FolderDialog
+        open={collectionDialogOpen}
+        onOpenChange={setCollectionDialogOpen}
+        kind="collection"
+        onSubmit={handleCreateCollection}
+      />
+      <FolderDialog
+        open={workspaceDialogOpen}
+        onOpenChange={setWorkspaceDialogOpen}
+        kind="workspace"
+        onSubmit={handleSubmitWorkspace}
+      />
+      <ImportDialog open={importOpen} onOpenChange={setImportOpen} onImport={handleImport} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleImportJsonFile(f);
+        }}
+      />
+      <CollectionPicker
+        open={collectionPickerOpen}
+        onOpenChange={setCollectionPickerOpen}
+        collections={collections}
+        bookmarks={bookmarks}
+        onPick={(id) => {
+          setView({ kind: "collection", id });
+          setMobileTab("home");
+        }}
+        onPickAll={() => {
+          setView({ kind: "all" });
+          setMobileTab("home");
+        }}
+        onCreate={() => setCollectionDialogOpen(true)}
+      />
+      <TagPicker
+        open={tagPickerOpen}
+        onOpenChange={setTagPickerOpen}
+        bookmarks={bookmarks}
+        onPick={(tag) => {
+          setView({ kind: "tag", tag });
+          setMobileTab("home");
+        }}
+      />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        bookmarks={bookmarks}
+        collections={collections}
+        workspaces={workspaces}
+        onSelectBookmark={(b) => window.open(b.url, "_blank")}
+        onSelectCollection={(c) => setView({ kind: "collection", id: c.id })}
+        onSelectWorkspace={(w) => handleWorkspaceChange(w.id)}
+        onSelectTag={(t) => setView({ kind: "tag", tag: t })}
+        onCreate={handleCreate}
+      />
     </div>
-  );
-}
-
-function QuickWin({ icon: Icon, title, text }: { icon: any; title: string; text: string }) {
-  return (
-    <div className="glass rounded-2xl p-4">
-      <Icon className="h-4 w-4 text-white/60" />
-      <h4 className="mt-2 font-semibold text-sm">{title}</h4>
-      <p className="mt-1 text-xs text-white/60">{text}</p>
-    </div>
-  );
-}
-
-function PermissionRow({ name, why }: { name: string; why: string }) {
-  return (
-    <div className="rounded-2xl bg-black/30 border border-white/[0.06] p-4">
-      <div className="flex items-center gap-2">
-        <code className="text-emerald-300 text-xs font-mono px-2 py-0.5 rounded-md bg-emerald-500/10">
-          {name}
-        </code>
-      </div>
-      <p className="mt-1.5 text-xs text-white/70">{why}</p>
-    </div>
-  );
-}
-
-function Faq({ q, a }: { q: string; a: string }) {
-  return (
-    <details className="group glass rounded-2xl p-5 transition-all open:bg-white/[0.08]">
-      <summary className="cursor-pointer list-none flex items-center justify-between gap-4">
-        <span className="font-semibold text-sm md:text-base">{q}</span>
-        <span className="text-white/40 group-open:rotate-45 transition-transform text-xl leading-none">
-          +
-        </span>
-      </summary>
-      <p className="mt-3 text-sm text-white/70 leading-relaxed">{a}</p>
-    </details>
   );
 }
