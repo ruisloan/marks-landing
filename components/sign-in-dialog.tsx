@@ -4,11 +4,17 @@ import * as React from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signInWithOtp, signInWithGoogle, verifyOtp } from "@/lib/auth";
+import {
+  signInWithOtp,
+  signInWithGoogle,
+  signInWithPassword,
+  signUpWithPassword,
+  verifyOtp,
+} from "@/lib/auth";
 import { migrateLocalToCloud } from "@/lib/storage";
 import { toast } from "sonner";
 
-type Step = "email" | "code";
+type Mode = "password" | "otp" | "code";
 
 export function SignInDialog({
   open,
@@ -19,31 +25,76 @@ export function SignInDialog({
   onOpenChange: (v: boolean) => void;
   onSignedIn?: () => void;
 }) {
-  const [step, setStep] = React.useState<Step>("email");
+  const [mode, setMode] = React.useState<Mode>("password");
+  const [isSignUp, setIsSignUp] = React.useState(false);
   const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [code, setCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!open) {
       setTimeout(() => {
-        setStep("email");
+        setMode("password");
+        setIsSignUp(false);
+        setPassword("");
         setCode("");
         setBusy(false);
       }, 200);
     }
   }, [open]);
 
-  async function sendCode() {
-    if (!email.includes("@")) {
-      toast.error("Please enter a valid email");
-      return;
+  async function afterAuth() {
+    try {
+      const result = await migrateLocalToCloud();
+      if (result && result.pushed > 0) {
+        toast.success(`Synced ${result.pushed} items to cloud`);
+      }
+    } catch (e: any) {
+      toast.error("Sync failed", { description: e.message ?? String(e) });
     }
+    onOpenChange(false);
+    onSignedIn?.();
+  }
+
+  async function submitPassword() {
+    if (!email.includes("@")) return toast.error("Please enter a valid email");
+    if (password.length < 6) return toast.error("Password must be at least 6 characters");
+    setBusy(true);
+    try {
+      if (isSignUp) {
+        const { needsConfirmation } = await signUpWithPassword(email.trim().toLowerCase(), password);
+        if (needsConfirmation) {
+          toast.success("Account created", {
+            description: "Check your email to confirm, then sign in.",
+            duration: 10000,
+          });
+          setIsSignUp(false);
+        } else {
+          await afterAuth();
+          toast.success("Account created", { description: "Signed in and syncing." });
+        }
+      } else {
+        await signInWithPassword(email.trim().toLowerCase(), password);
+        await afterAuth();
+        toast.success("Signed in", { description: email });
+      }
+    } catch (e: any) {
+      toast.error(isSignUp ? "Could not create account" : "Sign-in failed", {
+        description: e.message ?? String(e),
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendCode() {
+    if (!email.includes("@")) return toast.error("Please enter a valid email");
     setBusy(true);
     try {
       await signInWithOtp(email.trim().toLowerCase());
-      setStep("code");
-      toast.success("Check your inbox", { description: "We sent you a 6-digit code." });
+      setMode("code");
+      toast.success("Check your inbox", { description: "We sent a 6-digit code." });
     } catch (e: any) {
       toast.error("Couldn't send code", { description: e.message ?? String(e) });
     } finally {
@@ -51,25 +102,12 @@ export function SignInDialog({
     }
   }
 
-  async function verify() {
-    if (code.replace(/\D/g, "").length < 6) {
-      toast.error("Enter the 6-digit code");
-      return;
-    }
+  async function verifyCode() {
+    if (code.replace(/\D/g, "").length < 6) return toast.error("Enter the 6-digit code");
     setBusy(true);
     try {
       await verifyOtp(email.trim().toLowerCase(), code.replace(/\D/g, ""));
-      // Migrate local data to cloud on first sign-in.
-      try {
-        const result = await migrateLocalToCloud();
-        if (result && result.pushed > 0) {
-          toast.success(`Synced ${result.pushed} items to cloud`);
-        }
-      } catch (e: any) {
-        toast.error("Sync failed", { description: e.message ?? String(e) });
-      }
-      onOpenChange(false);
-      onSignedIn?.();
+      await afterAuth();
       toast.success("Signed in", { description: "Your bookmarks will now sync across devices." });
     } catch (e: any) {
       toast.error("Invalid code", { description: e.message ?? String(e) });
@@ -82,15 +120,51 @@ export function SignInDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
-          <DialogTitle>{step === "email" ? "Sign in to sync" : "Enter the 6-digit code"}</DialogTitle>
+          <DialogTitle>
+            {mode === "code"
+              ? "Enter the 6-digit code"
+              : isSignUp
+                ? "Create your Marks account"
+                : "Sign in to sync"}
+          </DialogTitle>
           <DialogDescription>
-            {step === "email"
-              ? "Sync your bookmarks across Chrome, iPhone, iPad and Android. No password needed."
-              : `We sent a code to ${email}. It expires in 10 minutes.`}
+            {mode === "code"
+              ? `We sent a code to ${email}. It expires in 10 minutes.`
+              : "Sync your bookmarks across Chrome, iPhone, iPad and Android."}
           </DialogDescription>
         </DialogHeader>
 
-        {step === "email" ? (
+        {mode === "code" ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              verifyCode();
+            }}
+            className="space-y-3"
+          >
+            <Input
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              disabled={busy}
+              className="text-center text-2xl tracking-[0.4em]"
+            />
+            <Button type="submit" className="w-full" disabled={busy || code.length < 6}>
+              {busy ? "Verifying…" : "Verify & sign in"}
+            </Button>
+            <button
+              type="button"
+              onClick={() => setMode("password")}
+              className="block w-full text-xs text-white/50 hover:text-white/80"
+            >
+              Back
+            </button>
+          </form>
+        ) : (
           <div className="space-y-3">
             <button
               type="button"
@@ -98,7 +172,6 @@ export function SignInDialog({
                 setBusy(true);
                 try {
                   await signInWithGoogle();
-                  // Redirect happens; component will unmount.
                 } catch (e: any) {
                   toast.error("Google sign-in failed", { description: e.message ?? String(e) });
                   setBusy(false);
@@ -123,9 +196,9 @@ export function SignInDialog({
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                sendCode();
+                submitPassword();
               }}
-              className="space-y-3"
+              className="space-y-2.5"
             >
               <Input
                 type="email"
@@ -135,44 +208,41 @@ export function SignInDialog({
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={busy}
               />
-              <Button type="submit" className="w-full" disabled={busy || !email}>
-                {busy ? "Sending…" : "Send code"}
+              <Input
+                type="password"
+                autoComplete={isSignUp ? "new-password" : "current-password"}
+                placeholder="Password (6+ chars)"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={busy}
+              />
+              <Button type="submit" className="w-full" disabled={busy || !email || !password}>
+                {busy
+                  ? isSignUp ? "Creating…" : "Signing in…"
+                  : isSignUp ? "Create account" : "Sign in"}
               </Button>
             </form>
+            <div className="flex justify-between text-[11px]">
+              <button
+                type="button"
+                onClick={() => setIsSignUp((v) => !v)}
+                className="text-white/60 hover:text-white"
+              >
+                {isSignUp ? "Have an account? Sign in" : "New here? Create account"}
+              </button>
+              <button
+                type="button"
+                onClick={sendCode}
+                disabled={busy || !email}
+                className="text-white/60 hover:text-white disabled:opacity-30"
+              >
+                Email me a code
+              </button>
+            </div>
             <p className="text-[11px] text-white/40 text-center">
-              By signing in you agree to store your bookmarks securely in our cloud (Supabase, EU region).
+              Bookmarks stored securely in our cloud (Supabase, EU region).
             </p>
           </div>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              verify();
-            }}
-            className="space-y-3"
-          >
-            <Input
-              autoFocus
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-              disabled={busy}
-              className="text-center text-2xl tracking-[0.4em]"
-            />
-            <Button type="submit" className="w-full" disabled={busy || code.length < 6}>
-              {busy ? "Verifying…" : "Verify & sign in"}
-            </Button>
-            <button
-              type="button"
-              onClick={() => setStep("email")}
-              className="block w-full text-xs text-white/50 hover:text-white/80"
-            >
-              Use a different email
-            </button>
-          </form>
         )}
       </DialogContent>
     </Dialog>

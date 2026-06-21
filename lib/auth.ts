@@ -50,6 +50,28 @@ export async function signInWithGoogle() {
   if (error) throw error;
 }
 
+export async function signInWithPassword(email: string, password: string) {
+  if (!isSupabaseConfigured) throw new Error("Supabase not configured");
+  const sb = getSupabase()!;
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+}
+
+export async function signUpWithPassword(email: string, password: string) {
+  if (!isSupabaseConfigured) throw new Error("Supabase not configured");
+  const sb = getSupabase()!;
+  const { data, error } = await sb.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: typeof window !== "undefined" ? window.location.origin : SITE_URL,
+    },
+  });
+  if (error) throw error;
+  // If email confirmation is OFF in Supabase, signUp returns a session immediately.
+  return { needsConfirmation: !data.session };
+}
+
 export async function signInWithOtp(email: string) {
   if (!isSupabaseConfigured) throw new Error("Supabase not configured");
   const sb = getSupabase()!;
