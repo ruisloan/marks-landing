@@ -101,30 +101,43 @@ export default function HomePage() {
    * also do it manually and report any failure inline. */
   React.useEffect(() => {
     if (typeof window === "undefined") return;
+    const log = (msg: string, extra?: any) => {
+      const line = `[${new Date().toISOString()}] ${msg}${extra ? " " + JSON.stringify(extra) : ""}`;
+      console.log("[Marks]", line);
+      const prev = localStorage.getItem("marks-debug") || "";
+      localStorage.setItem("marks-debug", (prev + "\n" + line).slice(-4000));
+    };
+    log("page mount", { url: window.location.href, search: window.location.search });
     const url = new URL(window.location.href);
     const hasCode = url.searchParams.has("code");
     const hasError = url.searchParams.has("error");
     if (hasError) {
-      toast.error("Google sign-in failed", {
-        description: url.searchParams.get("error_description") || url.searchParams.get("error") || "",
-      });
+      const desc = url.searchParams.get("error_description") || url.searchParams.get("error") || "";
+      log("oauth error", { desc });
+      toast.error("Google sign-in failed", { description: desc, duration: 15000 });
       window.history.replaceState({}, "", url.pathname);
       return;
     }
-    if (!hasCode || !isSupabaseConfigured) return;
+    if (!hasCode || !isSupabaseConfigured) {
+      log("no code on mount");
+      return;
+    }
     (async () => {
+      log("exchanging code…");
       const sb = (await import("@/lib/supabase")).getSupabase()!;
       try {
-        const { error } = await sb.auth.exchangeCodeForSession(window.location.href);
+        const { data, error } = await sb.auth.exchangeCodeForSession(window.location.href);
         if (error) {
-          toast.error("Sign-in failed", { description: error.message });
+          log("exchange failed", { name: error.name, msg: error.message, status: (error as any).status });
+          toast.error("Sign-in failed", { description: error.message, duration: 15000 });
         } else {
-          toast.success("Signed in");
+          log("exchange ok", { email: data.session?.user?.email });
+          toast.success("Signed in", { description: data.session?.user?.email, duration: 5000 });
         }
       } catch (e: any) {
-        toast.error("Sign-in error", { description: e?.message ?? String(e) });
+        log("exchange threw", { msg: e?.message });
+        toast.error("Sign-in error", { description: e?.message ?? String(e), duration: 15000 });
       } finally {
-        // Strip ?code= so a reload doesn't try to exchange again.
         window.history.replaceState({}, "", url.pathname);
       }
     })();
