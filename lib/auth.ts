@@ -36,12 +36,20 @@ export function useAuth() {
 
 /* ---------- Imperative helpers ---------- */
 
+const SITE_URL = "https://marks.centralbraintrust.com";
+
 export async function signInWithOtp(email: string) {
   if (!isSupabaseConfigured) throw new Error("Supabase not configured");
   const sb = getSupabase()!;
   const { error } = await sb.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: true },
+    options: {
+      shouldCreateUser: true,
+      // Where the magic link redirects after the user clicks it in the email.
+      // We keep this even though we also support the 6-digit code path, so users
+      // can authenticate either by tapping the link OR pasting the code.
+      emailRedirectTo: typeof window !== "undefined" ? window.location.origin : SITE_URL,
+    },
   });
   if (error) throw error;
 }
