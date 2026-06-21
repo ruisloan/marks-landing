@@ -129,7 +129,13 @@ export default function HomePage() {
         const { data, error } = await sb.auth.exchangeCodeForSession(window.location.href);
         if (error) {
           log("exchange failed", { name: error.name, msg: error.message, status: (error as any).status });
-          toast.error("Sign-in failed", { description: error.message, duration: 15000 });
+          // "code verifier not found" is a false alarm when the exchange already
+          // happened (e.g. the user opened the confirmation link in a 2nd tab).
+          // Suppress unless we're actually unauthenticated.
+          const { data: sess } = await sb.auth.getSession();
+          if (!sess.session && !/verifier/i.test(error.message)) {
+            toast.error("Sign-in failed", { description: error.message, duration: 15000 });
+          }
         } else {
           log("exchange ok", { email: data.session?.user?.email });
           toast.success("Signed in", { description: data.session?.user?.email, duration: 5000 });
