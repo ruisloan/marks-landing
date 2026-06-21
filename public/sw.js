@@ -1,5 +1,5 @@
 /* Marks — minimal offline-capable service worker. */
-const VERSION = "marks-pwa-v1";
+const VERSION = "marks-pwa-v2-sync";
 const PRECACHE = ["/", "/manifest.json", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
