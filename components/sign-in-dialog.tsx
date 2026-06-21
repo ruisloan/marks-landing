@@ -188,10 +188,10 @@ export function SignInDialog({
               </svg>
               Continue with Google
             </button>
-            <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-white/30">
-              <span className="h-px flex-1 bg-white/10" />
+            <div className="flex items-center gap-3 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="h-px flex-1 bg-border" />
               or email
-              <span className="h-px flex-1 bg-white/10" />
+              <span className="h-px flex-1 bg-border" />
             </div>
             <form
               onSubmit={(e) => {
@@ -226,7 +226,7 @@ export function SignInDialog({
               <button
                 type="button"
                 onClick={() => setIsSignUp((v) => !v)}
-                className="text-white/60 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
               >
                 {isSignUp ? "Have an account? Sign in" : "New here? Create account"}
               </button>
@@ -239,7 +239,7 @@ export function SignInDialog({
                 Email me a code
               </button>
             </div>
-            <p className="text-[11px] text-white/40 text-center">
+            <p className="text-[11px] text-muted-foreground text-center">
               Bookmarks stored securely in our cloud (Supabase, EU region).
             </p>
           </div>
