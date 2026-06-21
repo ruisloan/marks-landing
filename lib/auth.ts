@@ -38,6 +38,18 @@ export function useAuth() {
 
 const SITE_URL = "https://marks.centralbraintrust.com";
 
+export async function signInWithGoogle() {
+  if (!isSupabaseConfigured) throw new Error("Supabase not configured");
+  const sb = getSupabase()!;
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: typeof window !== "undefined" ? window.location.origin : SITE_URL,
+    },
+  });
+  if (error) throw error;
+}
+
 export async function signInWithOtp(email: string) {
   if (!isSupabaseConfigured) throw new Error("Supabase not configured");
   const sb = getSupabase()!;
