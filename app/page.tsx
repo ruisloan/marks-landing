@@ -95,6 +95,41 @@ export default function HomePage() {
     initSessionListener();
   }, []);
 
+  /* OAuth return — exchange the ?code= from Google's redirect for a session.
+   * detectSessionInUrl handles this on most browsers, but Comet / Firefox Focus
+   * with aggressive privacy settings sometimes drop the auto-exchange, so we
+   * also do it manually and report any failure inline. */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const hasCode = url.searchParams.has("code");
+    const hasError = url.searchParams.has("error");
+    if (hasError) {
+      toast.error("Google sign-in failed", {
+        description: url.searchParams.get("error_description") || url.searchParams.get("error") || "",
+      });
+      window.history.replaceState({}, "", url.pathname);
+      return;
+    }
+    if (!hasCode || !isSupabaseConfigured) return;
+    (async () => {
+      const sb = (await import("@/lib/supabase")).getSupabase()!;
+      try {
+        const { error } = await sb.auth.exchangeCodeForSession(window.location.href);
+        if (error) {
+          toast.error("Sign-in failed", { description: error.message });
+        } else {
+          toast.success("Signed in");
+        }
+      } catch (e: any) {
+        toast.error("Sign-in error", { description: e?.message ?? String(e) });
+      } finally {
+        // Strip ?code= so a reload doesn't try to exchange again.
+        window.history.replaceState({}, "", url.pathname);
+      }
+    })();
+  }, []);
+
   React.useEffect(() => {
     (async () => {
       try {
