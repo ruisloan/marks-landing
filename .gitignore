@@ -26,3 +26,4 @@ android/local.properties
 android/capacitor-cordova-android-plugins/
 *.keystore
 *.jks
+tsconfig.tsbuildinfo

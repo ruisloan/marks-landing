@@ -47,6 +47,7 @@
     "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.11",

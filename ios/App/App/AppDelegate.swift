@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 import Capacitor
 
 @UIApplicationMain
@@ -26,7 +27,47 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // Check the pasteboard for a Marks share payload coming from the
+        // Share Extension. Pattern: "MARKS::<url>::<title>"
+        checkMarksPasteboard()
+    }
+
+    private func checkMarksPasteboard() {
+        guard UIPasteboard.general.hasStrings,
+              let value = UIPasteboard.general.string,
+              value.hasPrefix("MARKS::") else { return }
+        let parts = value.dropFirst("MARKS::".count).components(separatedBy: "::")
+        let url = parts.first ?? ""
+        let title = parts.count > 1 ? parts[1] : ""
+        guard !url.isEmpty else { return }
+        UIPasteboard.general.string = ""  // consume so we don't re-fire on every foreground
+
+        // Inject a JS event into the Capacitor webview after the page is ready.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard let webView = self.findCapacitorWebView() else { return }
+            let escapedURL = url.replacingOccurrences(of: "\\", with: "\\\\")
+                                .replacingOccurrences(of: "'", with: "\\'")
+            let escapedTitle = title.replacingOccurrences(of: "\\", with: "\\\\")
+                                    .replacingOccurrences(of: "'", with: "\\'")
+            let js = """
+                window.dispatchEvent(new CustomEvent('marks:share', { detail: { url: '\(escapedURL)', title: '\(escapedTitle)' } }));
+            """
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+
+    private func findCapacitorWebView() -> WKWebView? {
+        guard let window = self.window,
+              let rootVC = window.rootViewController else { return nil }
+        return Self.findWebView(in: rootVC.view)
+    }
+
+    private static func findWebView(in view: UIView) -> WKWebView? {
+        if let wk = view as? WKWebView { return wk }
+        for subview in view.subviews {
+            if let found = findWebView(in: subview) { return found }
+        }
+        return nil
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

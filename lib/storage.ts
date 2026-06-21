@@ -2,7 +2,19 @@
 
 import type { Bookmark, Collection, Workspace } from "./types";
 import { getSupabase, isSupabaseConfigured } from "./supabase";
+import { currentUserIdSync, isAuthenticatedSync } from "./auth";
 import { uid } from "./utils";
+
+/** Use Supabase only when both configured AND the user is signed in. */
+function useCloud(): boolean {
+  return isSupabaseConfigured && isAuthenticatedSync();
+}
+
+function requireUserId(): string {
+  const id = currentUserIdSync();
+  if (!id) throw new Error("Not authenticated");
+  return id;
+}
 
 const LS_BOOKMARKS = "bm.bookmarks.v2";
 const LS_COLLECTIONS = "bm.collections.v2";
@@ -196,7 +208,7 @@ async function seedIfEmpty() {
 /* ---------- Public API ---------- */
 
 export async function listWorkspaces(): Promise<Workspace[]> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     const { data, error } = await sb.from("workspaces").select("*").order("position");
     if (error) throw error;
@@ -207,7 +219,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
 }
 
 export async function listCollections(workspaceId?: string): Promise<Collection[]> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     let q = sb.from("collections").select("*").order("position");
     if (workspaceId) q = q.eq("workspace_id", workspaceId);
@@ -221,7 +233,7 @@ export async function listCollections(workspaceId?: string): Promise<Collection[
 }
 
 export async function listBookmarks(workspaceId?: string): Promise<Bookmark[]> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     let q = sb.from("bookmarks").select("*").order("position");
     if (workspaceId) q = q.eq("workspace_id", workspaceId);
@@ -247,9 +259,13 @@ export async function createWorkspace(
     position: existing.length,
     created_at: now,
   };
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
-    const { data, error } = await sb.from("workspaces").insert(ws).select().single();
+    const { data, error } = await sb
+      .from("workspaces")
+      .insert({ ...ws, user_id: requireUserId() })
+      .select()
+      .single();
     if (error) throw error;
     return data as Workspace;
   }
@@ -258,7 +274,7 @@ export async function createWorkspace(
 }
 
 export async function deleteWorkspace(id: string): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     await sb.from("bookmarks").delete().eq("workspace_id", id);
     await sb.from("collections").delete().eq("workspace_id", id);
@@ -287,9 +303,13 @@ export async function createCollection(
     position: existing.length,
     created_at: now,
   };
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
-    const { data, error } = await sb.from("collections").insert(col).select().single();
+    const { data, error } = await sb
+      .from("collections")
+      .insert({ ...col, user_id: requireUserId() })
+      .select()
+      .single();
     if (error) throw error;
     return data as Collection;
   }
@@ -299,7 +319,7 @@ export async function createCollection(
 }
 
 export async function deleteCollection(id: string): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     await sb.from("collections").delete().eq("id", id);
     await sb.from("bookmarks").update({ collection_id: null }).eq("collection_id", id);
@@ -330,9 +350,13 @@ export async function createBookmark(
     created_at: now,
     updated_at: now,
   };
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
-    const { data, error } = await sb.from("bookmarks").insert(bm).select().single();
+    const { data, error } = await sb
+      .from("bookmarks")
+      .insert({ ...bm, user_id: requireUserId() })
+      .select()
+      .single();
     if (error) throw error;
     return data as Bookmark;
   }
@@ -343,7 +367,7 @@ export async function createBookmark(
 
 export async function updateBookmark(id: string, patch: Partial<Bookmark>): Promise<void> {
   const now = new Date().toISOString();
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     const { error } = await sb.from("bookmarks").update({ ...patch, updated_at: now }).eq("id", id);
     if (error) throw error;
@@ -354,7 +378,7 @@ export async function updateBookmark(id: string, patch: Partial<Bookmark>): Prom
 }
 
 export async function deleteBookmark(id: string): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     const { error } = await sb.from("bookmarks").delete().eq("id", id);
     if (error) throw error;
@@ -365,7 +389,7 @@ export async function deleteBookmark(id: string): Promise<void> {
 }
 
 export async function reorderBookmarks(ids: string[]): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
     await Promise.all(
       ids.map((id, position) => sb.from("bookmarks").update({ position }).eq("id", id)),
@@ -403,9 +427,12 @@ export async function bulkImport(
     url: b.url,
     title: b.title,
   }));
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
-    const { error } = await sb.from("bookmarks").insert(created);
+    const uidStr = requireUserId();
+    const { error } = await sb
+      .from("bookmarks")
+      .insert(created.map((b) => ({ ...b, user_id: uidStr })));
     if (error) throw error;
     return created.length;
   }
@@ -414,12 +441,85 @@ export async function bulkImport(
   return created.length;
 }
 
+/* ---------- One-shot migration: localStorage → Supabase ---------- */
+
+const LS_CLOUD_MIGRATED = "bm.cloudMigrated.v1";
+
+/**
+ * Push all local rows to Supabase on first sign-in.
+ * Safe to call repeatedly: it tags the user_id once done and bails on next call.
+ * Rows already in the cloud are NOT touched — we only push the deltas if
+ * the cloud is empty for this user.
+ */
+export async function migrateLocalToCloud(): Promise<{ pushed: number } | null> {
+  if (typeof window === "undefined") return null;
+  if (!useCloud()) return null;
+  const uidStr = requireUserId();
+  const flagKey = `${LS_CLOUD_MIGRATED}.${uidStr}`;
+  if (localStorage.getItem(flagKey)) return null;
+
+  // Skip if the cloud already has data for this user (avoids duplicates on re-sign-in)
+  const sb = getSupabase()!;
+  const { count } = await sb.from("workspaces").select("id", { count: "exact", head: true });
+  if ((count ?? 0) > 0) {
+    localStorage.setItem(flagKey, "1");
+    return { pushed: 0 };
+  }
+
+  // Read raw localStorage (NOT useCloud paths)
+  const workspaces: Workspace[] = JSON.parse(localStorage.getItem(LS_WORKSPACES) || "[]");
+  const collections: Collection[] = JSON.parse(localStorage.getItem(LS_COLLECTIONS) || "[]");
+  const bookmarks: Bookmark[] = JSON.parse(localStorage.getItem(LS_BOOKMARKS) || "[]");
+
+  let pushed = 0;
+  if (workspaces.length) {
+    const { error } = await sb.from("workspaces").insert(
+      workspaces.map((w) => ({ ...w, user_id: uidStr })),
+    );
+    if (error) throw error;
+    pushed += workspaces.length;
+  }
+  if (collections.length) {
+    const { error } = await sb.from("collections").insert(
+      collections.map((c) => ({ ...c, user_id: uidStr })),
+    );
+    if (error) throw error;
+    pushed += collections.length;
+  }
+  if (bookmarks.length) {
+    const { error } = await sb.from("bookmarks").insert(
+      bookmarks.map((b) => ({ ...b, user_id: uidStr })),
+    );
+    if (error) throw error;
+    pushed += bookmarks.length;
+  }
+  localStorage.setItem(flagKey, "1");
+  return { pushed };
+}
+
+/* ---------- Realtime: tell the app to refetch when any table changes ---------- */
+
+export function subscribeToCloudChanges(onChange: () => void): () => void {
+  if (!useCloud()) return () => {};
+  const sb = getSupabase()!;
+  const channel = sb
+    .channel("marks-sync")
+    .on("postgres_changes", { event: "*", schema: "public", table: "workspaces" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, onChange)
+    .on("postgres_changes", { event: "*", schema: "public", table: "bookmarks" }, onChange)
+    .subscribe();
+  return () => {
+    sb.removeChannel(channel);
+  };
+}
+
 export async function clearAll(): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (useCloud()) {
     const sb = getSupabase()!;
-    await sb.from("bookmarks").delete().neq("id", "");
-    await sb.from("collections").delete().neq("id", "");
-    await sb.from("workspaces").delete().neq("id", "");
+    const uidStr = requireUserId();
+    await sb.from("bookmarks").delete().eq("user_id", uidStr);
+    await sb.from("collections").delete().eq("user_id", uidStr);
+    await sb.from("workspaces").delete().eq("user_id", uidStr);
     return;
   }
   await removeKey(LS_WORKSPACES);

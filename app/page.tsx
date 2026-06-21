@@ -32,8 +32,12 @@ import {
   deleteWorkspace,
   bulkImport,
   clearAll,
+  subscribeToCloudChanges,
 } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { useAuth, initSessionListener, signOut } from "@/lib/auth";
+import { SignInDialog } from "@/components/sign-in-dialog";
+import { Cloud, CloudOff, LogOut } from "lucide-react";
 import { buildBackup, downloadJson, isBackupFile, restoreFromBackup } from "@/lib/backup";
 
 const LS_ACTIVE_WS = "bm.activeWorkspace.v1";
@@ -59,6 +63,9 @@ export default function HomePage() {
   const [importOpen, setImportOpen] = React.useState(false);
   const [collectionPickerOpen, setCollectionPickerOpen] = React.useState(false);
   const [tagPickerOpen, setTagPickerOpen] = React.useState(false);
+  const [signInOpen, setSignInOpen] = React.useState(false);
+
+  const { user, isAuthenticated, loaded: authLoaded } = useAuth();
 
   /* ---------- Load workspaces and pick the active one ---------- */
   const refresh = React.useCallback(async (workspaceIdOverride?: string) => {
@@ -85,6 +92,10 @@ export default function HomePage() {
   }, [activeWsId]);
 
   React.useEffect(() => {
+    initSessionListener();
+  }, []);
+
+  React.useEffect(() => {
     (async () => {
       try {
         await refresh();
@@ -97,6 +108,24 @@ export default function HomePage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* Refresh when auth state flips (sign-in / sign-out). */
+  React.useEffect(() => {
+    if (!authLoaded) return;
+    setActiveWsId(null);
+    refresh().catch((err) => console.error("[Marks] refresh after auth change failed:", err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, authLoaded]);
+
+  /* Realtime: when another device writes to the cloud, refetch. */
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+    const unsub = subscribeToCloudChanges(() => {
+      refresh().catch(() => {});
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   /* ---------- ⌘K shortcut ---------- */
   React.useEffect(() => {
@@ -139,6 +168,40 @@ export default function HomePage() {
     });
     // Strip the params so a reload doesn't re-trigger.
     window.history.replaceState({}, "", window.location.pathname);
+  }, [loaded, activeWsId]);
+
+  /* ---------- Native iOS Share Extension bridge ----------
+   * AppDelegate.swift dispatches `marks:share` with the URL + title
+   * pulled from the system pasteboard after the Share Extension stored it.
+   */
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!loaded) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { url?: string; title?: string };
+      const url = detail?.url || "";
+      const title = detail?.title || "";
+      if (!url) return;
+      setBookmarkDialog({
+        open: true,
+        initial: {
+          id: "",
+          url,
+          title: title || url,
+          description: null,
+          favicon: null,
+          preview: null,
+          workspace_id: activeWsId ?? "",
+          collection_id: null,
+          tags: [],
+          position: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as Bookmark,
+      });
+    };
+    window.addEventListener("marks:share", handler);
+    return () => window.removeEventListener("marks:share", handler);
   }, [loaded, activeWsId]);
 
   /* ---------- Derived list ---------- */
@@ -376,6 +439,37 @@ export default function HomePage() {
           </div>
         </div>
 
+        {isSupabaseConfigured && !isAuthenticated && (
+          <button
+            onClick={() => setSignInOpen(true)}
+            className="mt-4 w-full glass glass-highlight rounded-2xl px-4 py-2.5 flex items-center gap-3 text-xs pressable text-left hover:bg-white/[0.06]"
+          >
+            <CloudOff className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-muted-foreground flex-1">
+              Storing locally only.{" "}
+              <span className="text-foreground font-medium">Sign in</span> to sync across Chrome, iPhone and Android.
+            </span>
+          </button>
+        )}
+        {isSupabaseConfigured && isAuthenticated && (
+          <div className="mt-4 glass rounded-2xl px-4 py-2.5 flex items-center gap-3 text-xs">
+            <Cloud className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="text-muted-foreground flex-1">
+              Synced as <span className="text-foreground font-medium">{user?.email}</span>
+            </span>
+            <button
+              onClick={async () => {
+                await signOut();
+                toast.success("Signed out");
+              }}
+              className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+              title="Sign out"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Sign out
+            </button>
+          </div>
+        )}
         {!isSupabaseConfigured && (
           <div className="mt-4 glass rounded-2xl px-4 py-2.5 flex items-center gap-3 text-xs">
             <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
@@ -552,6 +646,7 @@ export default function HomePage() {
         onSelectTag={(t) => setView({ kind: "tag", tag: t })}
         onCreate={handleCreate}
       />
+      <SignInDialog open={signInOpen} onOpenChange={setSignInOpen} />
     </div>
   );
 }
